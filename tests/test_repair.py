@@ -38,3 +38,20 @@ def test_repairing_client_counts_repairs():
     response = client.chat([], [])
     assert response.tool_calls[0].arguments == "{}"
     assert client.repairs == ["string_encoded_arguments"]
+
+
+def test_short_text_reply_becomes_the_final_answer():
+    class Fake:
+        def __init__(self, content):
+            self.content = content
+
+        def chat(self, messages, tools):
+            return LLMResponse(self.content, [])
+
+    client = RepairingClient(Fake("1470"))
+    call = client.chat([], []).tool_calls[0]
+    assert call.name == "final_answer" and json.loads(call.arguments) == {"answer": "1470"}
+    assert client.repairs == ["text_as_final_answer"]
+    # Multi-line or long text is reasoning, not an answer.
+    assert RepairingClient(Fake("Let me check.\nFirst...")).chat([], []).tool_calls == []
+    assert RepairingClient(Fake("x" * 150)).chat([], []).tool_calls == []

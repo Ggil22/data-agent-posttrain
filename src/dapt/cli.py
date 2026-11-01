@@ -10,6 +10,7 @@ from pathlib import Path
 
 from data_agent_bench.llm import OpenAICompatClient, load_model_configs
 
+from dapt.repair import RepairingClient
 from dapt.rollout import load_records, rollout
 from dapt.tasks import SPLITS, build_split, load_tasks
 
@@ -67,16 +68,34 @@ def cmd_bench(args: argparse.Namespace) -> None:
     data_dir = Path("data/bench")
     datasets.write(data_dir)
 
-    def make_client(model: str, repeat: int) -> OpenAICompatClient:
-        return OpenAICompatClient(
+    def make_client(model: str, repeat: int):
+        client = OpenAICompatClient(
             configs[model], cache_dir=Path(".cache/llm"), cache_salt=f"repeat={repeat}"
         )
+        return RepairingClient(client) if args.repair else client
 
     results = run_benchmark(
         [args.model], TASKS, make_client, data_dir, args.out, repeats=args.repeats
     )
     records = latest_records(load_bench_records(results))
     print(f"Report: {write_report(records, args.out, f'{args.model} on data-agent-bench')}")
+
+
+def cmd_evaluate(args: argparse.Namespace) -> None:
+    from dapt.evaluate import evaluate
+
+    summary = evaluate(
+        args.hf_model,
+        args.out,
+        args.tasks,
+        lora=args.lora,
+        modes=tuple(args.modes),
+        splits=tuple(args.splits),
+        subset=args.subset,
+        workers=args.workers,
+    )
+    for key, v in summary.items():
+        print(f"{key:<16} {v['correct']:>4}/{v['total']:<4} {v['correct'] / v['total']:.1%}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -109,7 +128,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repeats", type=int, default=1)
     p.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--repair", action="store_true", help="Repair tool-call format errors.")
     p.set_defaults(func=cmd_bench)
+
+    p = sub.add_parser("evaluate", help="Serve a model with vLLM and run every evaluation.")
+    p.add_argument("--hf-model", required=True, help="Hugging Face id of the base model.")
+    p.add_argument("--lora", type=Path, help="LoRA adapter to evaluate on top of the base.")
+    p.add_argument("--modes", nargs="+", default=["strict", "repair"])
+    p.add_argument("--splits", nargs="+", default=["val", "heldout", "bench"])
+    p.add_argument("--subset", type=int, help="Only N tasks per split (not for bench).")
+    p.add_argument("--workers", type=int, default=16)
+    p.add_argument("--tasks", type=Path, default=DEFAULT_TASKS)
+    p.add_argument("--out", type=Path, required=True)
+    p.set_defaults(func=cmd_evaluate)
     return parser
 
 

@@ -2,9 +2,10 @@
 
 Small models often fail an agent task before any analysis happens: Granite 4.0 Micro encodes
 empty arguments as a JSON string ("{}" inside quotes), and Qwen3 models served in fp16 escape
-newlines twice, so the code reaches Python as one line full of backslashes. Evaluating a model
-both strictly and with these repairs shows how much of its failure rate (and of what training
-later fixes) is formatting. Only unambiguous cases are repaired, and every repair is counted.
+newlines twice, so the code reaches Python as one line full of backslashes. Both often write
+their final answer as plain text instead of calling final_answer. Evaluating a model both
+strictly and with these repairs shows how much of its failure rate (and of what training later
+fixes) is formatting. Only unambiguous cases are repaired, and every repair is counted.
 """
 
 from __future__ import annotations
@@ -12,7 +13,9 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 
-from data_agent_bench.llm import LLMClient, LLMResponse
+from data_agent_bench.llm import LLMClient, LLMResponse, ToolCall
+
+MAX_TEXT_ANSWER = 100  # longer text is reasoning or chat, not an answer
 
 
 def repair_arguments(name: str, raw: str) -> tuple[str, list[str]]:
@@ -69,4 +72,9 @@ class RepairingClient:
             arguments, applied = repair_arguments(tc.name, tc.arguments)
             self.repairs += applied
             calls.append(replace(tc, arguments=arguments) if applied else tc)
+        text = (response.content or "").strip()
+        if not calls and text and len(text) <= MAX_TEXT_ANSWER and "\n" not in text:
+            # A short, single-line reply with no tool call is taken as the final answer.
+            calls = [ToolCall("text_answer", "final_answer", json.dumps({"answer": text}))]
+            self.repairs.append("text_as_final_answer")
         return replace(response, tool_calls=calls)
