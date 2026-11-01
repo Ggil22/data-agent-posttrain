@@ -1,7 +1,7 @@
 """Turn scored rollouts into an SFT dataset (rejection sampling).
 
 Only correct episodes that followed the tool protocol are kept, at most `per_task` per task
-(the shortest first) and `per_template` per template, so easy templates do not dominate.
+(error-free and shortest first) and `per_template` per template, so easy templates do not dominate.
 Each kept episode is rewritten as a chat with the agent's standard system prompt, whatever
 prompt it was sampled with (see `dapt.hint`), and with clean tool calls: repaired arguments,
 and a final_answer call where the model had written its answer as text. Assistant text is
@@ -60,7 +60,11 @@ def select(records: list[dict], per_task: int = 1, per_template: int | None = No
             by_task[r["task_id"]].append(r)
     chosen, per_tpl = [], defaultdict(int)
     for task_id in sorted(by_task):
-        candidates = sorted(by_task[task_id], key=lambda r: (r["n_steps"], r["sample"]))
+        # Episodes without code errors first (they teach no avoidable mistakes), then shortest.
+        candidates = sorted(
+            by_task[task_id],
+            key=lambda r: ("code_error" in r["flags"], r["n_steps"], r["sample"]),
+        )
         for r in candidates[:per_task]:
             key = (r["domain"], r["template"])
             if per_template and per_tpl[key] >= per_template:

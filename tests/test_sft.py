@@ -62,6 +62,8 @@ def test_select_prefers_short_episodes_and_caps_templates():
     long = record(sample=0, steps=[*record()["trajectory"][:1], *record()["trajectory"]])
     short = record(sample=1)
     assert select([long, short]) == [short]
+    failed_once = record(sample=1, flags=["code_error"])
+    assert select([long, failed_once]) == [long]
     many = [record(task_id=f"t-{i}-a") for i in range(5)]
     assert len(select(many, per_template=3)) == 3
 
