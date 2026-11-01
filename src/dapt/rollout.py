@@ -23,7 +23,7 @@ from data_agent_bench.llm import LLMClient
 from data_agent_bench.sandbox import SubprocessSandbox
 from data_agent_bench.tools import ToolExecutor
 
-from dapt.hint import HintingClient
+from dapt.hint import GuidingClient, HintingClient
 from dapt.repair import RepairingClient
 from dapt.tasks import TrainTask
 
@@ -50,9 +50,12 @@ def run_episode(
     max_steps: int,
     repair: bool = False,
     hint: bool = False,
+    guide: bool = False,
 ) -> dict:
     if hint:
         client = HintingClient(client)
+    if guide:
+        client = GuidingClient(client)
     if repair:
         client = RepairingClient(client)
     with tempfile.TemporaryDirectory(prefix="dapt_", ignore_cleanup_errors=True) as tmp:
@@ -82,6 +85,7 @@ def run_episode(
         "completion_tokens": traj.completion_tokens,
         "repairs": client.repairs if repair else None,
         "hint": hint,
+        "guide": guide,
         "trajectory": [asdict(s) for s in traj.steps],
     }
 
@@ -96,6 +100,7 @@ def rollout(
     workers: int = 16,
     repair: bool = False,
     hint: bool = False,
+    guide: bool = False,
     deadline: float | None = None,
     log: Callable[[str], None] = print,
 ) -> Path:
@@ -112,7 +117,7 @@ def rollout(
     def job(task: TrainTask, sample: int) -> dict | None:
         if deadline and time.time() > deadline:
             return None
-        return run_episode(task, sample, clients[sample], data_root, max_steps, repair, hint)
+        return run_episode(task, sample, clients[sample], data_root, max_steps, repair, hint, guide)
 
     with (
         ThreadPoolExecutor(max_workers=workers) as pool,

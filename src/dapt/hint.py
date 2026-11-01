@@ -1,16 +1,25 @@
-"""Hinted sampling for SFT data: context distillation of a working procedure.
+"""Guided sampling for SFT data: context distillation of a working procedure.
 
 The base model rarely reads the documentation in its working directory, so it falls for the data
 traps, and it often writes its answer as text instead of calling final_answer. To collect correct
-trajectories it is sampled with a system prompt that spells out the procedure. The SFT examples
-are then rewritten with the standard prompt (see `dapt.sft`), so the fine-tuned model learns to
-follow the procedure without being told. The hint is generic: it names no task, table or answer.
+trajectories it is sampled with help, and the SFT examples are rewritten with the standard
+prompt (see `dapt.sft`), so the fine-tuned model learns to work this way without being told:
+
+- `HintingClient` adds the procedure to the system prompt. On its own this barely changes what
+  the model does (pilot: it read the documentation in 41/120 episodes, against 38 without it).
+- `GuidingClient` scripts the first two actions: list the files, then read every documentation
+  file. The model takes over from there. These actions are kept in the SFT examples: they are
+  the habit being taught.
+
+Both are generic: they name no task, table or answer.
 """
 
 from __future__ import annotations
 
+import json
+
 from data_agent_bench.agent import SYSTEM_PROMPT
-from data_agent_bench.llm import LLMClient, LLMResponse
+from data_agent_bench.llm import LLMClient, LLMResponse, ToolCall
 
 PROCEDURE = """
 How to work (follow this every time):
@@ -25,6 +34,7 @@ for the question before computing the answer.
 """
 
 HINTED_PROMPT = SYSTEM_PROMPT + PROCEDURE
+DOC_SUFFIXES = (".md", ".txt")
 
 
 class HintingClient:
@@ -37,3 +47,27 @@ class HintingClient:
         if messages and messages[0]["role"] == "system":
             messages = [{"role": "system", "content": HINTED_PROMPT}, *messages[1:]]
         return self.inner.chat(messages, tools)
+
+
+class GuidingClient:
+    """Wraps an LLM client and scripts the first actions of an episode: list the files, then
+    read the documentation files, if any. Later turns go to the wrapped client."""
+
+    def __init__(self, inner: LLMClient):
+        self.inner = inner
+
+    def chat(self, messages: list[dict], tools: list[dict]) -> LLMResponse:
+        turns = sum(m["role"] == "assistant" for m in messages)
+        if turns == 0:
+            return _call("guide_list", "list_files", {})
+        if turns == 1 and messages[-1]["role"] == "tool":
+            names = [line.split("\t")[0] for line in messages[-1]["content"].splitlines()]
+            docs = [n for n in names if n.lower().endswith(DOC_SUFFIXES)]
+            if docs:
+                code = "\n".join(f'print(open("{name}").read())' for name in docs)
+                return _call("guide_docs", "run_python", {"code": code})
+        return self.inner.chat(messages, tools)
+
+
+def _call(call_id: str, name: str, arguments: dict) -> LLMResponse:
+    return LLMResponse(None, [ToolCall(call_id, name, json.dumps(arguments))])

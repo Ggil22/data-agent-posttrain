@@ -18,8 +18,8 @@ HF_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 SAMPLES, TEMPERATURE = 2, 0.7
 HOURS = 8.0  # sampling budget, well inside Kaggle's 12-hour session limit
 GPUS = 2
-# Pilot: the same 120 train tasks with the hint (GPU 0) and without it (GPU 1), one sample each,
-# to check the pipeline and measure what the hint is worth before the full run.
+# Pilot: the same 120 train tasks, one sample each, guided with the hint (GPU 0) and without it
+# (GPU 1). Pilot 1 (hint vs nothing) showed the hint alone barely changes behaviour.
 PILOT = True
 
 REPO = "https://github.com/Ggil22/data-agent-posttrain"
@@ -90,13 +90,13 @@ for gpu in range(GPUS):
         hint = "--hint" if gpu == 0 else ""
         cmd = (
             f"dapt rollout --model base{gpu} --config configs/generate.yaml --split train "
-            f"--subset 120 --temperature {TEMPERATURE} {hint} --repair --workers 16 "
-            f"--out {OUT}/pilot-{'hint' if hint else 'nohint'}.jsonl"
+            f"--subset 120 --temperature {TEMPERATURE} {hint} --guide --repair --workers 16 "
+            f"--out {OUT}/pilot-guide-{'hint' if hint else 'nohint'}.jsonl"
         )
     else:
         cmd = (
             f"dapt rollout --model base{gpu} --config configs/generate.yaml --split train "
-            f"--samples {SAMPLES} --temperature {TEMPERATURE} --hint --repair "
+            f"--samples {SAMPLES} --temperature {TEMPERATURE} --hint --guide --repair "
             f"--shard {gpu}/{GPUS} --hours {HOURS} --workers 16 --out {OUT}/train-{gpu}.jsonl"
         )
     log = (OUT / f"rollout-{gpu}.log").open("w")

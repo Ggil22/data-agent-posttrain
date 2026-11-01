@@ -1,9 +1,10 @@
 import json
 
-from data_agent_bench.agent import SYSTEM_PROMPT
-from data_agent_bench.llm import LLMResponse
+from data_agent_bench.agent import SYSTEM_PROMPT, run_agent
+from data_agent_bench.llm import LLMResponse, ToolCall
+from data_agent_bench.tools import ToolExecutor
 
-from dapt.hint import HINTED_PROMPT, HintingClient
+from dapt.hint import HINTED_PROMPT, GuidingClient, HintingClient
 from dapt.sft import keep, select, to_messages
 
 
@@ -66,6 +67,20 @@ def test_select_prefers_short_episodes_and_caps_templates():
     assert select([long, failed_once]) == [long]
     many = [record(task_id=f"t-{i}-a") for i in range(5)]
     assert len(select(many, per_template=3)) == 3
+
+
+def test_guiding_client_lists_files_then_reads_the_docs(tmp_path):
+    (tmp_path / "DATA_DICTIONARY.md").write_text("Exclude staff trips.", encoding="utf-8")
+    (tmp_path / "trips.csv").write_text("a\n1\n", encoding="utf-8")
+
+    class Fake:
+        def chat(self, messages, tools):
+            return LLMResponse(None, [ToolCall("1", "final_answer", '{"answer": "1"}')])
+
+    traj = run_agent(GuidingClient(Fake()), "How many?", ToolExecutor(tmp_path))
+    calls = [ex for step in traj.steps for ex in step.tool_calls]
+    assert [c.name for c in calls] == ["list_files", "run_python", "final_answer"]
+    assert "Exclude staff trips." in calls[1].output and traj.final_answer == "1"
 
 
 def test_hinting_client_swaps_only_the_system_prompt():

@@ -55,6 +55,7 @@ def cmd_rollout(args: argparse.Namespace) -> None:
         workers=args.workers,
         repair=args.repair,
         hint=args.hint,
+        guide=args.guide,
         deadline=time.time() + args.hours * 3600 if args.hours else None,
     )
     records = load_records(out)
@@ -139,6 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--workers", type=int, default=16)
     p.add_argument("--repair", action="store_true", help="Repair tool-call format errors.")
     p.add_argument("--hint", action="store_true", help="Sample with the hinted system prompt.")
+    p.add_argument("--guide", action="store_true", help="Script the first two actions.")
     p.add_argument("--shard", help="i/n: only every n-th task, starting at the i-th.")
     p.add_argument("--hours", type=float, help="Start no new episode after this many hours.")
     p.add_argument("--tasks", type=Path, default=DEFAULT_TASKS)
