@@ -32,8 +32,8 @@ def cmd_rollout(args: argparse.Namespace) -> None:
     if args.temperature is not None:
         cfg = dataclasses.replace(cfg, temperature=args.temperature)
     tasks = load_tasks(args.tasks / f"{args.split}.jsonl")
-    if args.limit:
-        tasks = tasks[: args.limit]
+    if args.subset:  # evenly spread over domains, seeds and templates
+        tasks = tasks[:: max(1, len(tasks) // args.subset)][: args.subset]
     out = args.out or Path("runs") / f"{args.model}-{args.split}.jsonl"
     print(f"{len(tasks)} tasks x {args.samples} samples -> {out}")
 
@@ -70,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--split", choices=list(SPLITS), default="val")
     p.add_argument("--samples", type=int, default=1, help="Episodes per task.")
     p.add_argument("--temperature", type=float, help="Override the configured temperature.")
-    p.add_argument("--limit", type=int, help="Only the first N tasks.")
+    p.add_argument("--subset", type=int, help="Only N tasks, evenly spread over the split.")
     p.add_argument("--max-steps", type=int, default=12)
     p.add_argument("--workers", type=int, default=16)
     p.add_argument("--tasks", type=Path, default=DEFAULT_TASKS)
