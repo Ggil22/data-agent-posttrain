@@ -48,6 +48,7 @@ def cmd_rollout(args: argparse.Namespace) -> None:
         samples=args.samples,
         max_steps=args.max_steps,
         workers=args.workers,
+        repair=args.repair,
     )
     records = load_records(out)
     outcomes = Counter(r["outcome"] for r in records)
@@ -97,6 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--subset", type=int, help="Only N tasks, evenly spread over the split.")
     p.add_argument("--max-steps", type=int, default=12)
     p.add_argument("--workers", type=int, default=16)
+    p.add_argument("--repair", action="store_true", help="Repair tool-call format errors.")
     p.add_argument("--tasks", type=Path, default=DEFAULT_TASKS)
     p.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     p.add_argument("--out", type=Path)

@@ -22,6 +22,7 @@ from data_agent_bench.llm import LLMClient
 from data_agent_bench.sandbox import SubprocessSandbox
 from data_agent_bench.tools import ToolExecutor
 
+from dapt.repair import RepairingClient
 from dapt.tasks import TrainTask
 
 ClientFactory = Callable[[int], LLMClient]  # sample index -> client
@@ -40,8 +41,15 @@ def load_records(path: Path) -> list[dict]:
 
 
 def run_episode(
-    task: TrainTask, sample: int, client: LLMClient, data_root: Path, max_steps: int
+    task: TrainTask,
+    sample: int,
+    client: LLMClient,
+    data_root: Path,
+    max_steps: int,
+    repair: bool = False,
 ) -> dict:
+    if repair:
+        client = RepairingClient(client)
     with tempfile.TemporaryDirectory(prefix="dapt_", ignore_cleanup_errors=True) as tmp:
         workdir = Path(tmp)
         for f in (data_root / task.data_dir).iterdir():
@@ -67,6 +75,7 @@ def run_episode(
         "n_steps": len(traj.steps),
         "prompt_tokens": traj.prompt_tokens,
         "completion_tokens": traj.completion_tokens,
+        "repairs": client.repairs if repair else None,
         "trajectory": [asdict(s) for s in traj.steps],
     }
 
@@ -79,6 +88,7 @@ def rollout(
     samples: int = 1,
     max_steps: int = 12,
     workers: int = 16,
+    repair: bool = False,
     log: Callable[[str], None] = print,
 ) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,7 +104,8 @@ def rollout(
         out_path.open("a", encoding="utf-8") as f,
     ):
         futures = [
-            pool.submit(run_episode, t, s, clients[s], data_root, max_steps) for t, s in jobs
+            pool.submit(run_episode, t, s, clients[s], data_root, max_steps, repair)
+            for t, s in jobs
         ]
         # Records are written from this thread only, as each episode finishes.
         for i, fut in enumerate(as_completed(futures), 1):

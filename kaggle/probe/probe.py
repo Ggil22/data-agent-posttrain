@@ -20,10 +20,14 @@ SUBSET = int(os.environ.get("SUBSET", "60"))
 
 # Qwen3-4B-Instruct-2507 and Qwen3-1.7B break in fp16, the only half precision a T4 has
 # (they double-escape newlines inside tool-call JSON; fine in bf16). Qwen3.5-2B leaves its XML
-# tool calls unclosed even in bf16. Granite 4.0 Micro gives the same output in fp16 and bf16.
+# tool calls unclosed even in bf16. Granite 4.0 Micro gives the same output in fp16 and bf16,
+# but encodes empty arguments as a string. This run measures both with format repair on
+# (strict runs: probe v1 and v2).
+ROLLOUT_ARGS = os.environ.get("ROLLOUT_ARGS", "--repair").split()
 CANDIDATES = [
     # (name, Hugging Face id, extra vLLM arguments)
     ("granite-4.0-micro", "ibm-granite/granite-4.0-micro", ["--tool-call-parser", "hermes"]),
+    ("qwen3-4b-2507", "Qwen/Qwen3-4B-Instruct-2507", ["--tool-call-parser", "hermes"]),
 ]
 
 
@@ -114,6 +118,7 @@ def main() -> None:
             "16",
             "--out",
             str(out),
+            *ROLLOUT_ARGS,
         ]
         jobs.append((name, subprocess.Popen(cmd, cwd=SRC, stdout=log, stderr=subprocess.STDOUT)))
 
