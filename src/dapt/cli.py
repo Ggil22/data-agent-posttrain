@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -35,6 +36,9 @@ def cmd_rollout(args: argparse.Namespace) -> None:
     tasks = load_tasks(args.tasks / f"{args.split}.jsonl")
     if args.subset:  # evenly spread over domains, seeds and templates
         tasks = tasks[:: max(1, len(tasks) // args.subset)][: args.subset]
+    if args.shard:  # "i/n": every n-th task from the i-th, to split a run across GPUs
+        i, n = map(int, args.shard.split("/"))
+        tasks = tasks[i::n]
     out = args.out or Path("runs") / f"{args.model}-{args.split}.jsonl"
     print(f"{len(tasks)} tasks x {args.samples} samples -> {out}")
 
@@ -50,10 +54,26 @@ def cmd_rollout(args: argparse.Namespace) -> None:
         max_steps=args.max_steps,
         workers=args.workers,
         repair=args.repair,
+        hint=args.hint,
+        deadline=time.time() + args.hours * 3600 if args.hours else None,
     )
     records = load_records(out)
     outcomes = Counter(r["outcome"] for r in records)
     print(f"{sum(r['correct'] for r in records)}/{len(records)} correct  {dict(outcomes)}")
+
+
+def cmd_sft_data(args: argparse.Namespace) -> None:
+    from dapt.sft import build_sft
+
+    records = [r for path in args.runs for r in load_records(path)]
+    rows = build_sft(records, args.out, args.per_task, args.per_template)
+    tasks = {r["task_id"] for r in records}
+    solved = {r["task_id"] for r in records if r["correct"]}
+    print(f"{len(records)} episodes, {len(tasks)} tasks, {len(solved)} solved at least once")
+    print(f"{len(rows)} SFT examples -> {args.out}")
+    by_cat = Counter(row["category"] for row in rows)
+    for cat, n in sorted(by_cat.items()):
+        print(f"  {cat:<15} {n:>5}")
 
 
 def cmd_bench(args: argparse.Namespace) -> None:
@@ -118,10 +138,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-steps", type=int, default=12)
     p.add_argument("--workers", type=int, default=16)
     p.add_argument("--repair", action="store_true", help="Repair tool-call format errors.")
+    p.add_argument("--hint", action="store_true", help="Sample with the hinted system prompt.")
+    p.add_argument("--shard", help="i/n: only every n-th task, starting at the i-th.")
+    p.add_argument("--hours", type=float, help="Start no new episode after this many hours.")
     p.add_argument("--tasks", type=Path, default=DEFAULT_TASKS)
     p.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     p.add_argument("--out", type=Path)
     p.set_defaults(func=cmd_rollout)
+
+    p = sub.add_parser("sft-data", help="Build the SFT dataset from scored rollouts.")
+    p.add_argument("runs", type=Path, nargs="+", help="Rollout JSONL files.")
+    p.add_argument("--per-task", type=int, default=1, help="Correct episodes kept per task.")
+    p.add_argument("--per-template", type=int, help="Cap of examples per template.")
+    p.add_argument("--out", type=Path, default=Path("data/sft/train.jsonl"))
+    p.set_defaults(func=cmd_sft_data)
 
     p = sub.add_parser("bench", help="Run a model on data-agent-bench.")
     p.add_argument("--model", required=True)

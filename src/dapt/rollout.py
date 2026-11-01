@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
@@ -22,6 +23,7 @@ from data_agent_bench.llm import LLMClient
 from data_agent_bench.sandbox import SubprocessSandbox
 from data_agent_bench.tools import ToolExecutor
 
+from dapt.hint import HintingClient
 from dapt.repair import RepairingClient
 from dapt.tasks import TrainTask
 
@@ -47,7 +49,10 @@ def run_episode(
     data_root: Path,
     max_steps: int,
     repair: bool = False,
+    hint: bool = False,
 ) -> dict:
+    if hint:
+        client = HintingClient(client)
     if repair:
         client = RepairingClient(client)
     with tempfile.TemporaryDirectory(prefix="dapt_", ignore_cleanup_errors=True) as tmp:
@@ -76,6 +81,7 @@ def run_episode(
         "prompt_tokens": traj.prompt_tokens,
         "completion_tokens": traj.completion_tokens,
         "repairs": client.repairs if repair else None,
+        "hint": hint,
         "trajectory": [asdict(s) for s in traj.steps],
     }
 
@@ -89,30 +95,41 @@ def rollout(
     max_steps: int = 12,
     workers: int = 16,
     repair: bool = False,
+    hint: bool = False,
+    deadline: float | None = None,
     log: Callable[[str], None] = print,
 ) -> Path:
+    """Run every (task, sample) episode not done yet. With a `deadline` (a time.time() value),
+    episodes not started by then are skipped, so a time-limited session ends cleanly."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     done = {
         (r["task_id"], r["sample"]) for r in load_records(out_path) if r["outcome"] != "api_error"
     }
     jobs = [(t, s) for s in range(samples) for t in tasks if (t.id, s) not in done]
     clients = {s: make_client(s) for s in range(samples)}
-    n_correct = 0
+    n_correct = n_done = 0
+
+    def job(task: TrainTask, sample: int) -> dict | None:
+        if deadline and time.time() > deadline:
+            return None
+        return run_episode(task, sample, clients[sample], data_root, max_steps, repair, hint)
 
     with (
         ThreadPoolExecutor(max_workers=workers) as pool,
         out_path.open("a", encoding="utf-8") as f,
     ):
-        futures = [
-            pool.submit(run_episode, t, s, clients[s], data_root, max_steps, repair)
-            for t, s in jobs
-        ]
+        futures = [pool.submit(job, t, s) for t, s in jobs]
         # Records are written from this thread only, as each episode finishes.
-        for i, fut in enumerate(as_completed(futures), 1):
+        for fut in as_completed(futures):
             record = fut.result()
+            if record is None:
+                continue
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
             f.flush()
+            n_done += 1
             n_correct += record["correct"]
-            if i % 25 == 0 or i == len(jobs):
-                log(f"  {i}/{len(jobs)} episodes, {n_correct / i:.0%} correct")
+            if n_done % 25 == 0 or n_done == len(jobs):
+                log(f"  {n_done}/{len(jobs)} episodes, {n_correct / n_done:.0%} correct")
+    if n_done < len(jobs):
+        log(f"  deadline reached: {n_done}/{len(jobs)} episodes done")
     return out_path
