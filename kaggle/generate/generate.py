@@ -19,8 +19,8 @@ SAMPLES, TEMPERATURE = 2, 0.7
 HOURS = 8.0  # sampling budget, well inside Kaggle's 12-hour session limit
 GPUS = 2
 # Pilot: the same 120 train tasks, one sample each, guided with the hint (GPU 0) and without it
-# (GPU 1). Pilot 1 (hint vs nothing) showed the hint alone barely changes behaviour.
-PILOT = True
+# (GPU 1). Answerable tasks solved: 20/85 plain, 25 hint, 32 guide, 37 guide + hint.
+PILOT = False
 
 REPO = "https://github.com/Ggil22/data-agent-posttrain"
 SRC, VENV = Path("/tmp/repo"), Path("/tmp/venv")
