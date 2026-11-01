@@ -1,0 +1,43 @@
+[project]
+name = "data-agent-posttrain"
+version = "0.1.0"
+description = "SFT + DPO post-training of a small open model as a data analyst agent, evaluated on data-agent-bench."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "data-agent-bench @ git+https://github.com/Ggil22/data-agent-bench",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# GPU work runs on Kaggle (Linux, 2x T4); these are installed there, not locally.
+train = ["datasets>=3", "peft>=0.15", "transformers>=4.56", "trl>=0.21", "bitsandbytes>=0.46"]
+
+[project.scripts]
+dapt = "dapt.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dapt"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
