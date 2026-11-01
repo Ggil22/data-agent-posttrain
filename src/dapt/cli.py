@@ -54,6 +54,30 @@ def cmd_rollout(args: argparse.Namespace) -> None:
     print(f"{sum(r['correct'] for r in records)}/{len(records)} correct  {dict(outcomes)}")
 
 
+def cmd_bench(args: argparse.Namespace) -> None:
+    """data-agent-bench's 65 tasks: the out-of-distribution test set."""
+    from data_agent_bench.bench import datasets
+    from data_agent_bench.bench.report import write_report
+    from data_agent_bench.bench.runner import latest_records, run_benchmark
+    from data_agent_bench.bench.runner import load_records as load_bench_records
+    from data_agent_bench.bench.tasks import TASKS
+
+    configs = load_model_configs(args.config)
+    data_dir = Path("data/bench")
+    datasets.write(data_dir)
+
+    def make_client(model: str, repeat: int) -> OpenAICompatClient:
+        return OpenAICompatClient(
+            configs[model], cache_dir=Path(".cache/llm"), cache_salt=f"repeat={repeat}"
+        )
+
+    results = run_benchmark(
+        [args.model], TASKS, make_client, data_dir, args.out, repeats=args.repeats
+    )
+    records = latest_records(load_bench_records(results))
+    print(f"Report: {write_report(records, args.out, f'{args.model} on data-agent-bench')}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dapt", description="Post-training data agents.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -77,6 +101,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     p.add_argument("--out", type=Path)
     p.set_defaults(func=cmd_rollout)
+
+    p = sub.add_parser("bench", help="Run a model on data-agent-bench.")
+    p.add_argument("--model", required=True)
+    p.add_argument("--repeats", type=int, default=1)
+    p.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    p.add_argument("--out", type=Path, required=True)
+    p.set_defaults(func=cmd_bench)
     return parser
 
 
