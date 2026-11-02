@@ -11,6 +11,6 @@
   "machine_shape": "NvidiaTeslaT4",
   "dataset_sources": [],
   "competition_sources": [],
-  "kernel_sources": [],
+  "kernel_sources": ["gguille11/dapt-train"],
   "model_sources": []
 }

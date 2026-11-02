@@ -5,12 +5,19 @@ Edit RUN below, then `kaggle kernels push -p kaggle/evaluate --accelerator Nvidi
 
 import os
 import subprocess
+from pathlib import Path
 
 RUN = {
-    "name": "base",
+    "name": "sft",
     "hf_model": "Qwen/Qwen3-4B-Instruct-2507",
-    "lora": None,  # path to a LoRA adapter (e.g. from a Kaggle dataset) to evaluate instead
+    # A LoRA adapter to serve on top of the base: "input" finds the one in the mounted
+    # kernel_sources (the dapt-train output); None evaluates the base model.
+    "lora": "input",
 }
+if RUN["lora"] == "input":
+    (config,) = Path("/kaggle/input").rglob("adapter/adapter_config.json")
+    RUN["lora"] = str(config.parent)
+    print("adapter:", RUN["lora"], flush=True)
 
 REPO = "https://github.com/Ggil22/data-agent-posttrain"
 SRC, VENV = "/tmp/repo", "/tmp/venv"
