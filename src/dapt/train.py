@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import re
 from pathlib import Path
@@ -36,21 +37,35 @@ def tokenize(tokenizer, row: dict, max_length: int) -> dict | None:
     return {"input_ids": enc["input_ids"], "labels": labels}
 
 
-def collate(batch: list[dict], pad_id: int) -> dict:
+def collate(batch: list[dict]) -> dict:
+    """One example per device step (no padding). Logits are computed only at the positions
+    that predict an assistant token: over a 151k vocabulary, logits for a whole 4k-token
+    sequence take several GB, more than a T4 has left."""
     import torch
 
-    width = max(len(b["input_ids"]) for b in batch)
-    ids, labels, mask = [], [], []
-    for b in batch:
-        pad = width - len(b["input_ids"])
-        ids.append(b["input_ids"] + [pad_id] * pad)
-        labels.append(b["labels"] + [-100] * pad)
-        mask.append([1] * len(b["input_ids"]) + [0] * pad)
+    (example,) = batch
+    labels = torch.tensor([example["labels"]])
     return {
-        "input_ids": torch.tensor(ids),
-        "labels": torch.tensor(labels),
-        "attention_mask": torch.tensor(mask),
+        "input_ids": torch.tensor([example["input_ids"]]),
+        "attention_mask": torch.ones_like(labels),
+        "labels": labels,
+        "logits_to_keep": predicting_positions(labels),
     }
+
+
+def predicting_positions(labels):
+    """Positions whose next token is trained on."""
+    return (labels[0, 1:] != -100).nonzero().squeeze(-1)
+
+
+def assistant_loss(outputs, labels, num_items_in_batch=None):
+    """Cross-entropy over the logits kept by `collate`, in order."""
+    import torch.nn.functional as F
+
+    target = labels[0, 1:]
+    target = target[target != -100]
+    loss = F.cross_entropy(outputs.logits[0].float(), target, reduction="sum")
+    return loss / (num_items_in_batch if num_items_in_batch is not None else len(target))
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -98,6 +113,19 @@ def main(argv: list[str] | None = None) -> None:
     )
     model.print_trainable_parameters()
 
+    model.train()  # gradient checkpointing is only active in training mode
+    if torch.cuda.is_available():  # fail fast if the longest example does not fit
+        torch.cuda.set_device(int(os.environ.get("LOCAL_RANK", 0)))
+        model.to(f"cuda:{torch.cuda.current_device()}")
+        longest = max(features, key=lambda f: len(f["input_ids"]))
+        batch = {k: v.to(model.device) for k, v in collate([longest]).items()}
+        with torch.autocast("cuda", dtype=torch.float16):
+            outputs = model(**{k: v for k, v in batch.items() if k != "labels"})
+            assistant_loss(outputs, batch["labels"]).backward()
+        model.zero_grad(set_to_none=True)
+        peak = torch.cuda.max_memory_allocated() / 2**30
+        print(f"longest example ({len(longest['input_ids'])} tokens): peak {peak:.1f} GiB")
+
     world = max(1, torch.cuda.device_count())
     training_args = TrainingArguments(
         output_dir=str(args.out / "checkpoints"),
@@ -124,7 +152,8 @@ def main(argv: list[str] | None = None) -> None:
         args=training_args,
         train_dataset=train_set,
         eval_dataset=eval_set,
-        data_collator=lambda batch: collate(batch, tokenizer.pad_token_id),
+        data_collator=collate,
+        compute_loss_func=assistant_loss,
     )
     trainer.train()
     if trainer.is_world_process_zero():
