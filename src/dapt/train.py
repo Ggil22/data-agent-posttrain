@@ -69,6 +69,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--max-length", type=int, default=4096)
     p.add_argument("--eval-fraction", type=float, default=0.05)
     p.add_argument("--max-steps", type=int, default=-1, help="Stop early (smoke tests).")
+    p.add_argument("--logging-steps", type=int, default=5)
     args = p.parse_args(argv)
 
     tokenizer = AutoTokenizer.from_pretrained(args.model)
@@ -104,20 +105,19 @@ def main(argv: list[str] | None = None) -> None:
         max_steps=args.max_steps,
         learning_rate=args.lr,
         lr_scheduler_type="cosine",
-        warmup_ratio=0.03,
+        warmup_steps=0.03,  # a float below 1 is a fraction of the total steps
         per_device_train_batch_size=1,
         per_device_eval_batch_size=1,
         gradient_accumulation_steps=max(1, args.batch // world),
-        fp16=True,
+        fp16=torch.cuda.is_available(),  # CPU only for local dry runs
         max_grad_norm=1.0,
-        logging_steps=5,
+        logging_steps=args.logging_steps,
         eval_strategy="steps",
         eval_steps=50,
         save_strategy="no",
         report_to="none",
         ddp_find_unused_parameters=False,
         remove_unused_columns=False,
-        group_by_length=True,
     )
     trainer = Trainer(
         model=model,

@@ -14,7 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # GPU work runs on Kaggle (Linux, 2x T4); these are installed there, not locally.
-train = ["datasets>=3", "peft>=0.15", "transformers>=4.56", "trl>=0.21", "bitsandbytes>=0.46"]
+train = ["datasets>=3", "peft==0.21.2", "transformers==5.22.1", "accelerate==1.15.0"]
 
 [project.scripts]
 dapt = "dapt.cli:main"
