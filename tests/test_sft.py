@@ -67,6 +67,8 @@ def test_select_prefers_short_episodes_and_caps_templates():
     assert select([long, failed_once]) == [long]
     many = [record(task_id=f"t-{i}-a") for i in range(5)]
     assert len(select(many, per_template=3)) == 3
+    assert len(select(many, per_category={"aggregation": 2})) == 2
+    assert len(select(many, per_category={"cleaning": 2})) == 5
 
 
 def test_guiding_client_lists_files_then_reads_the_docs(tmp_path):

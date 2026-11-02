@@ -13,7 +13,7 @@ from pathlib import Path
 SMOKE = True  # a few steps only, to check memory and speed before the full run
 HF_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 TRAIN_ARGS = "--epochs 2 --lr 1e-4 --rank 32 --batch 16 --max-length 4096"
-SFT_ARGS = "--per-task 1"
+SFT_ARGS = "--per-task 1 --per-category unanswerable=200"
 
 REPO = "https://github.com/Ggil22/data-agent-posttrain"
 SRC, VENV = Path("/tmp/repo"), Path("/tmp/venv")

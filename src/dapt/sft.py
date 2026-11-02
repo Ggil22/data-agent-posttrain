@@ -1,7 +1,9 @@
 """Turn scored rollouts into an SFT dataset (rejection sampling).
 
 Only correct episodes that followed the tool protocol are kept, at most `per_task` per task
-(error-free and shortest first) and `per_template` per template, so easy templates do not dominate.
+(error-free and shortest first), and optionally capped per template and per category, so
+easy templates and unanswerable questions do not dominate. Tasks are visited in a fixed random
+order, so caps cut evenly across domains and seeds.
 Each kept episode is rewritten as a chat with the agent's standard system prompt, whatever
 prompt it was sampled with (see `dapt.hint`), and with clean tool calls: repaired arguments,
 and a final_answer call where the model had written its answer as text. Assistant text is
@@ -12,6 +14,7 @@ are what is learned.
 from __future__ import annotations
 
 import json
+import random
 from collections import defaultdict
 from pathlib import Path
 
@@ -53,23 +56,34 @@ def to_messages(record: dict) -> list[dict]:
     return messages
 
 
-def select(records: list[dict], per_task: int = 1, per_template: int | None = None) -> list[dict]:
+def select(
+    records: list[dict],
+    per_task: int = 1,
+    per_template: int | None = None,
+    per_category: dict[str, int] | None = None,
+) -> list[dict]:
     by_task = defaultdict(list)
     for r in records:
         if keep(r):
             by_task[r["task_id"]].append(r)
-    chosen, per_tpl = [], defaultdict(int)
-    for task_id in sorted(by_task):
+    task_ids = sorted(by_task)
+    random.Random(0).shuffle(task_ids)
+    per_category = per_category or {}
+    chosen, per_tpl, per_cat = [], defaultdict(int), defaultdict(int)
+    for task_id in task_ids:
         # Episodes without code errors first (they teach no avoidable mistakes), then shortest.
         candidates = sorted(
             by_task[task_id],
             key=lambda r: ("code_error" in r["flags"], r["n_steps"], r["sample"]),
         )
         for r in candidates[:per_task]:
-            key = (r["domain"], r["template"])
+            key, cat = (r["domain"], r["template"]), r["category"]
             if per_template and per_tpl[key] >= per_template:
                 break
+            if cat in per_category and per_cat[cat] >= per_category[cat]:
+                break
             per_tpl[key] += 1
+            per_cat[cat] += 1
             chosen.append(r)
     return chosen
 
@@ -79,6 +93,7 @@ def build_sft(
     out_path: Path,
     per_task: int = 1,
     per_template: int | None = None,
+    per_category: dict[str, int] | None = None,
 ) -> list[dict]:
     rows = [
         {
@@ -89,7 +104,7 @@ def build_sft(
             "messages": to_messages(r),
             "tools": AGENT_TOOL_SPECS,
         }
-        for r in select(records, per_task, per_template)
+        for r in select(records, per_task, per_template, per_category)
     ]
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8") as f:

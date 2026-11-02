@@ -67,7 +67,8 @@ def cmd_sft_data(args: argparse.Namespace) -> None:
     from dapt.sft import build_sft
 
     records = [r for path in args.runs for r in load_records(path)]
-    rows = build_sft(records, args.out, args.per_task, args.per_template)
+    caps = {cat: int(n) for cat, n in (c.split("=") for c in args.per_category or [])}
+    rows = build_sft(records, args.out, args.per_task, args.per_template, caps)
     tasks = {r["task_id"] for r in records}
     solved = {r["task_id"] for r in records if r["correct"]}
     print(f"{len(records)} episodes, {len(tasks)} tasks, {len(solved)} solved at least once")
@@ -152,6 +153,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("runs", type=Path, nargs="+", help="Rollout JSONL files.")
     p.add_argument("--per-task", type=int, default=1, help="Correct episodes kept per task.")
     p.add_argument("--per-template", type=int, help="Cap of examples per template.")
+    p.add_argument(
+        "--per-category", nargs="+", metavar="CATEGORY=N", help="Caps of examples per category."
+    )
     p.add_argument("--out", type=Path, default=Path("data/sft/train.jsonl"))
     p.set_defaults(func=cmd_sft_data)
 
