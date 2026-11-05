@@ -3,7 +3,7 @@
 Post-training a small open model (SFT, then DPO) to work as a data analyst agent, and
 measuring what each stage buys on [data-agent-bench](https://github.com/Ggil22/data-agent-bench).
 
-> **Status:** phase 1 of 6 (training tasks). No model has been trained yet.
+> **Status:** phase 4 of 6 (DPO). SFT is trained and evaluated; DPO is implemented, not run yet.
 
 ## Design
 
@@ -49,11 +49,22 @@ analysing is exactly the habit the training should teach.
 ## Plan
 
 1. **Training tasks** (done): domains, templates, splits, leakage tests.
-2. **Baseline:** serve the base model with vLLM on Kaggle (2x T4) and evaluate it on all
-   three levels.
-3. **SFT:** rejection sampling of trajectories from a teacher and from the base model itself;
-   QLoRA with TRL.
-4. **DPO:** on-policy pairs from the SFT model, aimed at its failure modes.
+2. **Baseline** (done): `Qwen3-4B-Instruct-2507` served with vLLM on Kaggle (2x T4).
+3. **SFT** (done): guided rejection sampling from the base model, LoRA SFT on 1,219 examples.
+4. **DPO** (implemented): the SFT model sampled 4 times per task it was not trained on; a
+   correct and a failed episode of the same task make a pair (for never-solved tasks the
+   correct side comes from the SFT sampling). The SFT adapter is trained further with DPO
+   plus an NLL term on the chosen side; reference log-probs are computed before training.
+
+| Exact match | val | heldout | data-agent-bench |
+|---|---|---|---|
+| Base, strict | 4/300 (1%) | 6/180 (3%) | 2/65 (3%) |
+| Base, format repair | 87/300 (29%) | 78/180 (43%) | 46/65 (71%) |
+| SFT, strict | 182/300 (61%) | 78/180 (43%) | 52/65 (80%) |
+
+SFT removes the format errors and learns the trained domains' traps, but does not transfer to the
+held-out domain (aggregation, cleaning, business rules and multi-step: 0/48 on `inventory`).
+42 of its 480 episodes ended in a 120 s API timeout, counted as failures.
 5. **Report:** base vs SFT vs SFT+DPO vs API models, with confidence intervals, the failure
    taxonomy and a general-capability check for forgetting.
 6. **Release:** LoRA adapters and the dataset on the Hugging Face Hub.
@@ -66,3 +77,6 @@ uv run dapt build                       # task sets in data/tasks/
 uv run dapt rollout --model gemini-flash-lite --split val --limit 20
 uv run pytest
 ```
+
+Kaggle jobs, in order: `kaggle/generate` (SFT samples), `kaggle/train` (SFT),
+`kaggle/dpo-generate` (on-policy samples), `kaggle/dpo-train` (DPO), `kaggle/evaluate`.

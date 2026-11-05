@@ -73,18 +73,31 @@ class ChunkedLoss:
         self.hidden = output
 
     def __call__(self, outputs, labels, num_items_in_batch=None):
+        n = int((labels[:, 1:] != -100).sum())
+        total = -self.logprob_sums(labels).sum()
+        return total / (num_items_in_batch if num_items_in_batch is not None else n)
+
+    def logprob_sums(self, labels):
+        """Summed log-probability of each row's labelled tokens, from the hidden states captured
+        in the last forward pass (also used by DPO, see `dapt.dpo_train`)."""
         import torch
         from torch.utils.checkpoint import checkpoint
 
-        target = labels[0, 1:]
-        keep = target != -100
-        hidden, target = self.hidden[0, :-1][keep], target[keep]
-        self.hidden = None
-        total = hidden.new_zeros((), dtype=torch.float32)
-        for i in range(0, len(target), self.chunk):
-            h, t = hidden[i : i + self.chunk], target[i : i + self.chunk]
-            total = total + checkpoint(self._chunk_loss, h, t, use_reentrant=False)
-        return total / (num_items_in_batch if num_items_in_batch is not None else len(target))
+        hidden_all, self.hidden = self.hidden, None
+        sums = []
+        for row in range(labels.shape[0]):
+            target = labels[row, 1:]
+            keep = target != -100
+            hidden, target = hidden_all[row, :-1][keep], target[keep]
+            total = hidden.new_zeros((), dtype=torch.float32)
+            for i in range(0, len(target), self.chunk):
+                h, t = hidden[i : i + self.chunk], target[i : i + self.chunk]
+                if torch.is_grad_enabled():
+                    total = total - checkpoint(self._chunk_loss, h, t, use_reentrant=False)
+                else:
+                    total = total - self._chunk_loss(h, t)
+            sums.append(total)
+        return torch.stack(sums)
 
     def _chunk_loss(self, hidden, target):
         import torch.nn.functional as F

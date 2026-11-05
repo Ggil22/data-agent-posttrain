@@ -101,16 +101,26 @@ def rollout(
     repair: bool = False,
     hint: bool = False,
     guide: bool = False,
+    by_task: bool = False,
     deadline: float | None = None,
     log: Callable[[str], None] = print,
 ) -> Path:
     """Run every (task, sample) episode not done yet. With a `deadline` (a time.time() value),
-    episodes not started by then are skipped, so a time-limited session ends cleanly."""
+    episodes not started by then are skipped, so a time-limited session ends cleanly.
+
+    Episodes run sample by sample (every task's first sample, then the second...), or, with
+    `by_task`, task by task, so a cut-short run still has every sample of the tasks it reached
+    (what DPO pairs need)."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     done = {
         (r["task_id"], r["sample"]) for r in load_records(out_path) if r["outcome"] != "api_error"
     }
-    jobs = [(t, s) for s in range(samples) for t in tasks if (t.id, s) not in done]
+    order = (
+        [(t, s) for t in tasks for s in range(samples)]
+        if by_task
+        else [(t, s) for s in range(samples) for t in tasks]
+    )
+    jobs = [(t, s) for t, s in order if (t.id, s) not in done]
     clients = {s: make_client(s) for s in range(samples)}
     n_correct = n_done = 0
 

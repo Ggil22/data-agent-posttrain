@@ -8,10 +8,10 @@ import subprocess
 from pathlib import Path
 
 RUN = {
-    "name": "sft",
+    "name": "dpo",
     "hf_model": "Qwen/Qwen3-4B-Instruct-2507",
     # A LoRA adapter to serve on top of the base: "input" finds the one in the mounted
-    # kernel_sources (the dapt-train output); None evaluates the base model.
+    # kernel_sources (the dapt-train or dapt-dpo-train output); None evaluates the base model.
     "lora": "input",
 }
 if RUN["lora"] == "input":

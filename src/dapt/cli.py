@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import json
 import sys
 import time
 from collections import Counter
@@ -34,6 +35,14 @@ def cmd_rollout(args: argparse.Namespace) -> None:
     if args.temperature is not None:
         cfg = dataclasses.replace(cfg, temperature=args.temperature)
     tasks = load_tasks(args.tasks / f"{args.split}.jsonl")
+    if args.exclude_tasks:  # e.g. the SFT examples' tasks, to sample where the model is unsure
+        seen = {
+            json.loads(line)["task_id"]
+            for path in args.exclude_tasks
+            for line in path.open(encoding="utf-8")
+            if line.strip()
+        }
+        tasks = [t for t in tasks if t.id not in seen]
     if args.subset:  # evenly spread over domains, seeds and templates
         tasks = tasks[:: max(1, len(tasks) // args.subset)][: args.subset]
     if args.shard:  # "i/n": every n-th task from the i-th, to split a run across GPUs
@@ -56,6 +65,7 @@ def cmd_rollout(args: argparse.Namespace) -> None:
         repair=args.repair,
         hint=args.hint,
         guide=args.guide,
+        by_task=args.by_task,
         deadline=time.time() + args.hours * 3600 if args.hours else None,
     )
     records = load_records(out)
@@ -76,6 +86,25 @@ def cmd_sft_data(args: argparse.Namespace) -> None:
     by_cat = Counter(row["category"] for row in rows)
     for cat, n in sorted(by_cat.items()):
         print(f"  {cat:<15} {n:>5}")
+
+
+def cmd_dpo_data(args: argparse.Namespace) -> None:
+    from dapt.dpo import build_dpo
+
+    records = [r for path in args.runs for r in load_records(path)]
+    extra = [r for path in args.chosen_from or [] for r in load_records(path)]
+    caps = {cat: int(n) for cat, n in (c.split("=") for c in args.per_category or [])}
+    rows = build_dpo(records, args.out, extra, args.per_task, caps)
+    by_task = {}
+    for r in records:
+        by_task.setdefault(r["task_id"], []).append(r["correct"])
+    mixed = sum(any(v) and not all(v) for v in by_task.values())
+    never = sum(not any(v) for v in by_task.values())
+    print(f"{len(records)} episodes, {len(by_task)} tasks: {mixed} mixed, {never} never solved")
+    print(f"{len(rows)} DPO pairs -> {args.out}")
+    for key in ("source", "category", "rejected_outcome"):
+        counts = Counter(row[key] for row in rows)
+        print(f"  by {key}: " + ", ".join(f"{k} {n}" for k, n in sorted(counts.items())))
 
 
 def cmd_bench(args: argparse.Namespace) -> None:
@@ -142,6 +171,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repair", action="store_true", help="Repair tool-call format errors.")
     p.add_argument("--hint", action="store_true", help="Sample with the hinted system prompt.")
     p.add_argument("--guide", action="store_true", help="Script the first two actions.")
+    p.add_argument(
+        "--by-task", action="store_true", help="Run all samples of a task before the next."
+    )
+    p.add_argument(
+        "--exclude-tasks", type=Path, nargs="+", help="JSONL files whose task_ids are skipped."
+    )
     p.add_argument("--shard", help="i/n: only every n-th task, starting at the i-th.")
     p.add_argument("--hours", type=float, help="Start no new episode after this many hours.")
     p.add_argument("--tasks", type=Path, default=DEFAULT_TASKS)
@@ -158,6 +193,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--out", type=Path, default=Path("data/sft/train.jsonl"))
     p.set_defaults(func=cmd_sft_data)
+
+    p = sub.add_parser("dpo-data", help="Build DPO pairs from scored on-policy rollouts.")
+    p.add_argument("runs", type=Path, nargs="+", help="On-policy rollout JSONL files.")
+    p.add_argument(
+        "--chosen-from",
+        type=Path,
+        nargs="+",
+        help="Other rollouts whose correct episodes serve as chosen for never-solved tasks.",
+    )
+    p.add_argument("--per-task", type=int, default=2, help="Pairs kept per task.")
+    p.add_argument(
+        "--per-category", nargs="+", metavar="CATEGORY=N", help="Caps of pairs per category."
+    )
+    p.add_argument("--out", type=Path, default=Path("data/dpo/train.jsonl"))
+    p.set_defaults(func=cmd_dpo_data)
 
     p = sub.add_parser("bench", help="Run a model on data-agent-bench.")
     p.add_argument("--model", required=True)

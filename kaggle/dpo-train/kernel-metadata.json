@@ -1,0 +1,16 @@
+{
+  "id": "gguille11/dapt-dpo-train",
+  "title": "dapt dpo-train",
+  "code_file": "train.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": ["gguille11/dapt-dpo-generate", "gguille11/dapt-train", "gguille11/dapt-generate"],
+  "model_sources": []
+}
