@@ -12,10 +12,10 @@ import os
 import subprocess
 from pathlib import Path
 
-SMOKE = False  # a few steps only, to check memory and speed before the full run
+SMOKE = True  # a few steps only, to check memory and speed before the full run
 HF_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 TRAIN_ARGS = "--beta 0.1 --nll-weight 0.2 --epochs 2 --lr 2e-5 --batch 16 --max-length 4096"
-DPO_ARGS = "--per-task 2"
+DPO_ARGS = "--per-task 3"  # 4 samples per task: 3 caps what pairs there are
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 REPO = "https://github.com/Ggil22/data-agent-posttrain"
