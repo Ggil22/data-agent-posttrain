@@ -12,7 +12,7 @@ import os
 import subprocess
 from pathlib import Path
 
-SMOKE = True  # a few steps only, to check memory and speed before the full run
+SMOKE = False  # a few steps only, to check memory and speed before the full run
 HF_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 TRAIN_ARGS = "--beta 0.1 --nll-weight 0.2 --epochs 2 --lr 2e-5 --batch 16 --max-length 4096"
 DPO_ARGS = "--per-task 3"  # 4 samples per task: 3 caps what pairs there are
